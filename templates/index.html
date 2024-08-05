@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Squill AI Chatbot</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        .chat-container {
+            height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+        .user-message {
+            background-color: #4299E1;
+            color: white;
+            border-radius: 18px 18px 0 18px;
+        }
+        .bot-message {
+            background-color: #2D3748;
+            color: white;
+            border-radius: 18px 18px 18px 0;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #4299E1;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .hidden {
+            display: none;
+        }
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .action-button {
+            background-color: #4A5568;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .action-button:hover {
+            background-color: #2D3748;
+        }
+        .visualization-image {
+            max-width: 70%;
+            max-height: 400px;
+            object-fit: contain;
+            margin: 10px auto;
+            display: block;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 font-sans leading-normal tracking-normal text-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-5xl text-center font-bold text-white mb-6">Squill AI Chatbot</h1>
+        <div class="bg-gray-800 rounded shadow p-6 mb-6">
+            <div id="chatContainer" class="chat-container mb-4"></div>
+            <div class="flex">
+                <textarea id="userInput" placeholder="Ask Squill AI..." class="flex-grow p-2 border border-gray-700 rounded-l-lg bg-gray-700 text-gray-200"></textarea>
+                <button onclick="sendMessage()" class="bg-blue-500 text-white py-2 px-4 rounded-r-lg hover:bg-blue-600">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Visualization Modal -->
+    <div id="visualizationModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex justify-center items-center">
+        <div class="bg-gray-800 p-6 rounded shadow-lg w-1/2">
+            <h2 class="text-2xl font-bold text-white mb-4">Visualization Options</h2>
+            <div class="mb-4">
+                <label for="visualizationType" class="block text-gray-200 mb-2">Select Visualization Type:</label>
+                <select id="visualizationType" class="w-full p-2 border border-gray-700 rounded bg-gray-700 text-gray-200">
+                    <option value="bar">Bar Chart</option>
+                    <option value="line">Line Chart</option>
+                    <option value="pie">Pie Chart</option>
+                    <option value="scatter">Scatter Plot</option>
+                </select>
+            </div>
+            <div id="columnSelection" class="mb-4">
+                <!-- Column selection checkboxes will be dynamically generated here -->
+            </div>
+            <button onclick="generateVisualization()" class="w-full bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600">Generate Visualization</button>
+            <button onclick="closeVisualizationModal()" class="w-full bg-red-500 text-white py-2 px-4 rounded hover:bg-red-600 mt-2">Cancel</button>
+        </div>
+    </div>
+
+    <script>
+        let lastQueryResult = null;
+        let lastQueryDetails = null;
+
+        function addMessage(content, isUser = false) {
+            const chatContainer = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `${isUser ? 'user-message ml-auto' : 'bot-message'} max-w-3/4 p-3 rounded-lg mb-2`;
+            messageDiv.innerHTML = content;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const userInput = document.getElementById('userInput');
+            const message = userInput.value.trim();
+            if (message) {
+                addMessage(message, true);
+                userInput.value = '';
+                await processUserInput(message);
+            }
+        }
+
+        async function processUserInput(input) {
+            addMessage('<div class="spinner"></div>');
+            await sendQuery(input);
+        }
+
+        async function sendQuery(userInput) {
+            const response = await fetch('/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_input: userInput })
+            });
+            const data = await response.json();
+            displayQueryResult(data);
+        }
+
+        function displayQueryResult(data) {
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.lastElementChild.remove(); // Remove loading spinner
+
+            lastQueryResult = data;
+            lastQueryDetails = data.summary;
+
+            let resultContent = '';
+
+            if (data.summary.status === 'failed') {
+                resultContent = `<p class="text-red-500"><strong>Error:</strong> ${data.summary.error_message}</p>`;
+            } else {
+                const columns = data.data.columns;
+                const rows = data.data.rows;
+
+                let table = '<table id="resultTable" class="min-w-full bg-gray-700 mt-2">';
+                table += '<thead><tr class="w-full bg-gray-800 text-gray-200 text-left">';
+                columns.forEach(col => {
+                    table += `<th class="py-2 px-4 border-b border-gray-800">${col}</th>`;
+                });
+                table += '</tr></thead>';
+                table += '<tbody>';
+                rows.forEach(row => {
+                    table += '<tr class="hover:bg-gray-600">';
+                    columns.forEach(col => {
+                        table += `<td class="py-2 px-4 border-b border-gray-800">${row[col]}</td>`;
+                    });
+                    table += '</tr>';
+                });
+                table += '</tbody></table>';
+
+                resultContent = table;
+            }
+
+            resultContent += `
+                <div class="action-buttons">
+                    <button onclick="showQueryDetails()" class="action-button">Show Query</button>
+                    <button onclick="copyTable()" class="action-button">Copy to Clipboard</button>
+                    <button onclick="exportTableToCSV()" class="action-button">Download CSV</button>
+                    <button onclick="analyzeData()" class="action-button">Squill Analysis</button>
+                    <button onclick="openVisualizationModal()" class="action-button">Generate Visualization</button>
+                </div>
+            `;
+
+            addMessage(resultContent);
+        }
+
+        function showQueryDetails() {
+            if (lastQueryDetails) {
+                let detailsContent = `
+                    <p><strong>Query:</strong> ${lastQueryDetails.query}</p>
+                    <p><strong>Attempts:</strong> ${lastQueryDetails.attempts}</p>
+                    <p><strong>Status:</strong> ${lastQueryDetails.status}</p>
+                `;
+                addMessage(detailsContent);
+            } else {
+                addMessage("No query details available.");
+            }
+        }
+
+        async function analyzeData() {
+            if (!lastQueryResult) {
+                addMessage('No data available for analysis. Please run a query first.');
+                return;
+            }
+
+            addMessage('<div class="spinner"></div>');
+
+            const response = await fetch('/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: lastQueryResult.data })
+            });
+            const analysisData = await response.json();
+            displayAnalysisResult(analysisData);
+        }
+
+        function displayAnalysisResult(data) {
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.lastElementChild.remove(); // Remove loading spinner
+
+            let formattedAnalysis = data.analysis
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/###(.*?)\n/g, '<em>$1</em>\n');
+
+            addMessage(`<p><strong>Analysis:</strong></p>${formattedAnalysis}`);
+        }
+
+        function openVisualizationModal() {
+            const modal = document.getElementById('visualizationModal');
+            const columnSelection = document.getElementById('columnSelection');
+            columnSelection.innerHTML = '';
+
+            if (lastQueryResult) {
+                const columns = lastQueryResult.data.columns;
+                columns.forEach(col => {
+                    columnSelection.innerHTML += `
+                        <div class="flex items-center mb-2">
+                            <input type="checkbox" id="col-${col}" name="columns" value="${col}" class="mr-2">
+                            <label for="col-${col}" class="text-gray-200">${col}</label>
+                            <select id="col-type-${col}" class="ml-4 p-1 border border-gray-700 rounded bg-gray-700 text-gray-200">
+                                <option value="categorical">Categorical</option>
+                                <option value="numerical">Numerical</option>
+                            </select>
+                        </div>
+                    `;
+                });
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeVisualizationModal() {
+            const modal = document.getElementById('visualizationModal');
+            modal.classList.add('hidden');
+        }
+
+        async function generateVisualization() {
+            const visualizationType = document.getElementById('visualizationType').value;
+            const selectedColumns = Array.from(document.querySelectorAll('input[name="columns"]:checked')).map(checkbox => checkbox.value);
+            const columnTypes = selectedColumns.reduce((acc, col) => {
+                const type = document.getElementById(`col-type-${col}`).value;
+                acc[col] = type;
+                return acc;
+            }, {});
+
+            closeVisualizationModal();
+            addMessage('<div class="spinner"></div>');
+
+            const response = await fetch('/visualize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    data: lastQueryResult.data,
+                    visualizationType: visualizationType,
+                    selectedColumns: selectedColumns,
+                    columnTypes: columnTypes
+                })
+            });
+
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.lastElementChild.remove(); // Remove loading spinner
+
+            if (response.ok) {
+                const imgBlob = await response.blob();
+                const imgUrl = URL.createObjectURL(imgBlob);
+                addMessage(`<img src="${imgUrl}" alt="Data Visualization" class="visualization-image">`);
+            } else {
+                addMessage('<p class="text-red-500"><strong>Failed to generate visualization.</strong></p>');
+            }
+        }
+
+        function copyTable() {
+            if (!lastQueryResult) {
+                addMessage('No data available to copy. Please run a query first.');
+                return;
+            }
+
+            const table = document.getElementById('resultTable');
+            const range = document.createRange();
+            range.selectNode(table);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+
+            try {
+                const successful = document.execCommand('copy');
+                const msg = successful ? 'Table copied to clipboard.' : 'Failed to copy table.';
+                addMessage(msg);
+            } catch (err) {
+                addMessage('Failed to copy table.');
+            }
+
+            window.getSelection().removeAllRanges();
+        }
+
+        function exportTableToCSV() {
+            if (!lastQueryResult) {
+                addMessage('No data available to export. Please run a query first.');
+                return;
+            }
+
+            const { columns, rows } = lastQueryResult.data;
+            let csvContent = columns.join(',') + '\r\n';
+
+            rows.forEach(row => {
+                const rowData = columns.map(col => row[col]).join(',');
+                csvContent += rowData + '\r\n';
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'results.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            addMessage('Data exported to CSV.');
+        }
+
+        document.getElementById('userInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
