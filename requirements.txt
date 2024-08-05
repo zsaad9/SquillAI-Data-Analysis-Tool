@@ -1,0 +1,8 @@
+flask
+google-cloud-bigquery
+pandas
+db-dtypes
+openai
+python-dotenv
+matplotlib
+plotly
